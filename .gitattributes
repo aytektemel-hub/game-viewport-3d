@@ -1,0 +1,9 @@
+# Keep the Asset Library / source-zip download to just the addon itself.
+# GitHub honors export-ignore when it builds archive zips, so users install
+# addons/game_viewport_3d/ and nothing else. The README and LICENSE copies
+# inside the addon folder still ship.
+/media          export-ignore
+/README.md      export-ignore
+/LICENSE        export-ignore
+/.gitignore     export-ignore
+/.gitattributes export-ignore
