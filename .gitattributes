@@ -3,6 +3,7 @@
 # addons/game_viewport_3d/ and nothing else. The README and LICENSE copies
 # inside the addon folder still ship.
 /media          export-ignore
+/docs           export-ignore
 /README.md      export-ignore
 /LICENSE        export-ignore
 /.gitignore     export-ignore

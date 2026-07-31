@@ -111,6 +111,25 @@ static func find_view_menu_button(editor_viewport: Node) -> MenuButton:
 
 
 
+## The 3D editor's viewport-layout menu — the popup holding "1 Viewport",
+## "2 Viewports", "4 Viewports" and friends. Matched by requiring two of the
+## layout labels in one popup, so nothing else can be confused for it.
+static func find_layout_menu(base: Node) -> PopupMenu:
+	for node in find_all(base, func(n: Node) -> bool: return n is PopupMenu):
+		var menu := node as PopupMenu
+		var has_two := false
+		var has_four := false
+		for i in menu.item_count:
+			var text := menu.get_item_text(i)
+			if text == "2 Viewports":
+				has_two = true
+			elif text == "4 Viewports":
+				has_four = true
+		if has_two and has_four:
+			return menu
+	return null
+
+
 ## A main-screen selector button ("2D", "3D", "Script", "Game", "Asset Store").
 ##
 ## Matched by requiring its sibling row to hold the other main-screen buttons,

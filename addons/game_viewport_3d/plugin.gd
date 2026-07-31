@@ -22,6 +22,12 @@ const MAIN_SCREEN_3D := "3D"
 ## Text of the per-pane toggle that picks which viewport hosts the game.
 const PANE_TOGGLE_TEXT := "Game Window"
 
+## Editor settings game embedding cannot work without.
+const SETTING_EMBED_MODE := "run/window_placement/game_embed_mode"
+const EMBED_MODE_EMBED := 1
+const SETTING_SINGLE_WINDOW := "interface/editor/display/single_window_mode"
+const SETTING_MULTI_WINDOW := "interface/multi_window/enable"
+
 ## Label of the Game entry in the main-screen selector.
 const GAME_SCREEN_LABEL := "Game"
 
@@ -46,6 +52,10 @@ const MAX_SWITCHES_PER_SESSION := 4
 
 ## Idle frames between attempts to locate the editor-internal nodes.
 const RESOLVE_RETRY_FRAMES := 60
+
+## A plugin instance that loads within this many engine frames is part of the
+## editor booting, not a user activating it from the Plugins list.
+const ACTIVATION_BOOT_FRAMES := 120
 
 ## Frames over which split proportions are re-asserted after being put back, to
 ## outlast the resorts that follow — a window resize on leaving fullscreen, or
@@ -110,6 +120,15 @@ var _chrome_overlay: Control
 
 var _relocated := false
 var _applied_slot := -1
+## One layout auto-switch per activation, so a failed attempt cannot loop.
+var _auto_layout_tried := false
+## Engine frame count when this instance loaded: near zero when the editor is
+## booting with the plugin already enabled, large when the user just switched
+## it on in the Plugins list.
+var _frames_at_load := 0
+var _activation_layout_checked := false
+var _prereq_checked := false
+var _prereq_dialog: ConfirmationDialog
 
 var _want_relocated := false
 var _slot := 1
@@ -148,6 +167,7 @@ func _enter_tree() -> void:
 	if v["major"] < 4 or (v["major"] == 4 and v["minor"] < 7):
 		push_warning("Game Viewport 3D: requires Godot 4.7 or newer - the plugin is inactive.")
 		return
+	_frames_at_load = Engine.get_process_frames()
 	_define_settings()
 	_load_settings()
 	EditorInterface.get_editor_settings().settings_changed.connect(_load_settings)
@@ -163,6 +183,9 @@ func _exit_tree() -> void:
 		settings.settings_changed.disconnect(_load_settings)
 
 	_uninstall_pane_toggles()
+	if is_instance_valid(_prereq_dialog):
+		_prereq_dialog.queue_free()
+	_prereq_dialog = null
 	_show_game_main_screen()
 	_restore_game_focus_switch()
 	_disconnect_embed_signals()
@@ -184,8 +207,25 @@ func _process(_delta: float) -> void:
 		_on_play_stopped()
 		_was_playing = false
 
+	# Checked before node resolution on purpose: with the wrong settings the
+	# embed control never resolves, and this dialog is the way out.
+	if not _prereq_checked:
+		_prereq_checked = true
+		if _frames_at_load > ACTIVATION_BOOT_FRAMES:
+			_show_prereq_dialog()
+
 	if not _resolve_nodes():
 		return
+
+	# Freshly activated from the Plugins list in a 1-viewport layout: grow the
+	# layout to two right away, so both panes offer their Game Window toggle
+	# and the user just picks one. Deliberately NOT done when the editor boots
+	# with the plugin already enabled — forcing a layout change on every start
+	# would fight whatever the user set up.
+	if not _activation_layout_checked:
+		_activation_layout_checked = true
+		if _frames_at_load > ACTIVATION_BOOT_FRAMES and _visible_pane_count() < 2:
+			_switch_to_two_viewports()
 
 	_reconcile(playing)
 
@@ -505,6 +545,18 @@ func _on_embedding_failed() -> void:
 func _relocate(slot: int) -> void:
 	if _relocated or not is_instance_valid(_embedded):
 		return
+
+	# A 1-viewport layout grows a second pane before the game moves in — the
+	# whole point is editing in one pane while the game runs in the other.
+	# The game then takes the bottom pane, leaving the pane that was being
+	# edited on top. One attempt per activation; if the layout cannot be
+	# switched, fall through and use the single visible pane as before.
+	if _visible_pane_count() < 2 and not _auto_layout_tried:
+		_auto_layout_tried = true
+		if _switch_to_two_viewports():
+			_set_slot(1)
+			return
+
 	var viewport := _viewport_at(slot)
 	if viewport == null:
 		return
@@ -535,6 +587,7 @@ func _relocate(slot: int) -> void:
 	_show_notice()
 	_apply_stretch_to_fit()
 	_update_pane_toggles()
+	_auto_layout_tried = false
 
 
 func _restore() -> void:
@@ -544,6 +597,7 @@ func _restore() -> void:
 	_relocated = false
 	_applied_slot = -1
 
+	_auto_layout_tried = false
 	_clear_fullscreen()
 	_fullscreen = false
 	_show_pane_chrome()
@@ -667,6 +721,36 @@ func _effective_slot() -> int:
 	# Nothing is visible: the 3D workspace is not the active main screen. Stay
 	# put rather than reparenting the host on every workspace switch.
 	return _applied_slot if _relocated else _slot
+
+
+## Counts panes the current viewport layout shows. The pane's own `visible`
+## flag is what the layout controls, and unlike `is_visible_in_tree()` it stays
+## meaningful while another main screen covers the 3D editor entirely.
+func _visible_pane_count() -> int:
+	var count := 0
+	for i in _viewports.size():
+		var pane := _viewport_at(i)
+		if pane != null and pane.visible:
+			count += 1
+	return count
+
+
+## Switches the 3D editor to the stacked 2-viewport layout by driving Godot's
+## own View-menu item — the same handler a click on "2 Viewports" runs.
+##
+## The items are matched by their English labels, so a translated editor UI
+## will not match; the plugin then simply keeps the single visible pane, which
+## is the pre-existing behaviour rather than a failure.
+func _switch_to_two_viewports() -> bool:
+	var menu := Internals.find_layout_menu(EditorInterface.get_base_control())
+	if menu == null:
+		_set_status("viewport-layout menu not found - using the visible pane")
+		return false
+	for i in menu.item_count:
+		if menu.get_item_text(i) == "2 Viewports":
+			menu.id_pressed.emit(menu.get_item_id(i))
+			return true
+	return false
 
 
 func _viewport_at(slot: int) -> Control:
@@ -1389,6 +1473,10 @@ func _update_pane_toggles() -> void:
 
 func _on_pane_toggled(pressed: bool, index: int) -> void:
 	if pressed:
+		# The moment of clearest intent: if embedding cannot work with the
+		# current editor settings, offer the fix right here.
+		_show_prereq_dialog()
+	if pressed:
 		_set_slot(index)
 		_set_enabled(true)
 	else:
@@ -1514,6 +1602,92 @@ func _define(key: String, value: Variant, info: Dictionary = {}) -> void:
 		var property := info.duplicate()
 		property["name"] = full
 		settings.add_property_info(property)
+
+
+## Raw editor-settings read (no plugin prefix), with a fallback for settings
+## that do not exist in a given build.
+func _get_editor_setting(name: String, fallback: Variant) -> Variant:
+	var settings := EditorInterface.get_editor_settings()
+	return settings.get_setting(name) if settings.has_setting(name) else fallback
+
+
+## The editor settings embedding needs, as human-readable fixes. Embed mode 0
+## ("Use Per-Project Configuration") is deliberately not flagged: that project
+## may well configure embedding correctly, and second-guessing it would nag
+## setups that already work.
+func _prerequisites_missing() -> PackedStringArray:
+	var missing: PackedStringArray = []
+	var embed_mode := int(_get_editor_setting(SETTING_EMBED_MODE, EMBED_MODE_EMBED))
+	if embed_mode < 0 or embed_mode == 2:
+		missing.append("•  Run → Window Placement → Game Embed Mode: \"Embed Game\"")
+	if bool(_get_editor_setting(SETTING_SINGLE_WINDOW, false)):
+		missing.append("•  Interface → Editor → Display → Single Window Mode: off")
+	if not bool(_get_editor_setting(SETTING_MULTI_WINDOW, true)):
+		missing.append("•  Interface → Multi Window → Enable: on")
+	return missing
+
+
+## Single-window and multi-window changes only take effect after an editor
+## restart; the embed mode applies on the next Play.
+func _prereq_needs_restart() -> bool:
+	return bool(_get_editor_setting(SETTING_SINGLE_WINDOW, false)) \
+		or not bool(_get_editor_setting(SETTING_MULTI_WINDOW, true))
+
+
+## Applies only the settings that are actually wrong. Never called without the
+## user confirming the dialog — these are user-global editor settings, and
+## changing them silently is not this plugin's call to make.
+func _apply_prerequisites() -> void:
+	var settings := EditorInterface.get_editor_settings()
+	var embed_mode := int(_get_editor_setting(SETTING_EMBED_MODE, EMBED_MODE_EMBED))
+	if embed_mode < 0 or embed_mode == 2:
+		settings.set_setting(SETTING_EMBED_MODE, EMBED_MODE_EMBED)
+	if bool(_get_editor_setting(SETTING_SINGLE_WINDOW, false)):
+		settings.set_setting(SETTING_SINGLE_WINDOW, false)
+	if not bool(_get_editor_setting(SETTING_MULTI_WINDOW, true)):
+		settings.set_setting(SETTING_MULTI_WINDOW, true)
+
+
+func _on_prereq_confirmed() -> void:
+	var restart := _prereq_needs_restart()
+	_apply_prerequisites()
+	# The dialog is torn down completely before the restart, and the restart is
+	# deferred a frame. Restarting synchronously from inside this handler left
+	# our dialog mid-teardown when the quit sequence raised the editor's own
+	# prompts ("save scripts?"), and the clash of modals wedged their input.
+	if is_instance_valid(_prereq_dialog):
+		_prereq_dialog.queue_free()
+		_prereq_dialog = null
+	if restart:
+		EditorInterface.restart_editor.call_deferred(true)
+
+
+func _show_prereq_dialog() -> void:
+	if is_instance_valid(_prereq_dialog):
+		return
+	var missing := _prerequisites_missing()
+	if missing.is_empty():
+		return
+	var needs_restart := _prereq_needs_restart()
+	_prereq_dialog = ConfirmationDialog.new()
+	_prereq_dialog.title = "Game Viewport 3D"
+	_prereq_dialog.dialog_text = "Game embedding needs these editor settings changed:\n\n" \
+		+ "\n".join(missing) \
+		+ ("\n\nThe editor must restart for them to take effect." if needs_restart else "")
+	_prereq_dialog.ok_button_text = "Apply and Restart Editor" if needs_restart else "Apply"
+	_prereq_dialog.cancel_button_text = "Not Now"
+	# Never exclusive: an exclusive dialog can block input to any prompt the
+	# editor raises after it, and nothing here needs modality anyway.
+	_prereq_dialog.exclusive = false
+	_prereq_dialog.confirmed.connect(_on_prereq_confirmed)
+	var base := EditorInterface.get_base_control()
+	if base == null:
+		_prereq_dialog = null
+		return
+	base.add_child(_prereq_dialog)
+	# Headless runs have no windowing to pop into.
+	if DisplayServer.get_name() != "headless":
+		_prereq_dialog.popup_centered()
 
 
 func _get_setting(key: String, fallback: Variant) -> Variant:
