@@ -36,15 +36,17 @@ If embedding is unavailable the plugin stays inert and logs a warning to **Outpu
 
 ## Install
 
-Copy the folder into your project so that the path is exactly:
+**From the Asset Library (easiest):** open the **AssetLib** tab in the editor, search for *Game Viewport 3D*, then **Download → Install**. The files land in `res://addons/game_viewport_3d/` automatically — Godot creates the `addons` folder for you if the project doesn't have one.
+
+**From GitHub:** download the release zip (or *Code → Download ZIP*), extract it, and drag the **`addons`** folder it contains into your project's root. If the project already has an `addons` folder, merge them. Either way the addon must end up at exactly:
 
 ```
 res://addons/game_viewport_3d/
 ```
 
-The `addons/` part is not optional: Godot only discovers editor plugins inside `res://addons/`, so if you drag the folder somewhere else (for example the project root), it will not appear in the Plugins list. If your project has no `addons` folder yet, create it first — or drag the whole `addons` folder from the download in one piece.
-
 Then enable **Game Viewport 3D** in **Project → Project Settings → Plugins**.
+
+The one thing that does not work is placing the inner `game_viewport_3d` folder anywhere else — Godot discovers editor plugins exclusively under `res://addons/`, so the plugin would never appear in the Plugins list.
 
 > **Updating the addon:** disable the plugin (or close the editor) *before* replacing its `.gd` files. Godot hot-reloads changed `@tool` scripts, and reloading this one while it is active — holding the embed control, the Game toolbar and Godot's focus handler out of their normal places — leaves dangling references and can crash the editor. Disable, replace the files, re-enable.
 
