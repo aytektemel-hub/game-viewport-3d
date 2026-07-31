@@ -42,7 +42,7 @@ Copy the folder into your project so that the path is exactly:
 res://addons/game_viewport_3d/
 ```
 
-The folder name matters — the scripts `preload()` each other by absolute path.
+The `addons/` part is not optional: Godot only discovers editor plugins inside `res://addons/`, so if you drag the folder somewhere else (for example the project root), it will not appear in the Plugins list. If your project has no `addons` folder yet, create it first — or drag the whole `addons` folder from the download in one piece.
 
 Then enable **Game Viewport 3D** in **Project → Project Settings → Plugins**.
 

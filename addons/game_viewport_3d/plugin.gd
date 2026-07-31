@@ -11,7 +11,10 @@ extends EditorPlugin
 ## The embedding itself is still done entirely by Godot — this plugin only
 ## relocates the controls that own it.
 
-const Internals := preload("res://addons/game_viewport_3d/editor_internals.gd")
+# Relative, so a misplaced install parses cleanly instead of erroring — though
+# Godot only discovers plugins under res://addons/, so the folder still has to
+# end up at res://addons/game_viewport_3d/ to be enabled.
+const Internals := preload("editor_internals.gd")
 
 const SETTING_PREFIX := "game_viewport_3d/"
 const MAIN_SCREEN_3D := "3D"
