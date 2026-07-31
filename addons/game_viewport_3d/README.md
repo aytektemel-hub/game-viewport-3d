@@ -4,6 +4,8 @@ Shows the running game **inside a pane of the 3D editor's split viewport** inste
 
 Keep your editor 3D view on top, watch the live game underneath, without leaving the 3D workspace.
 
+![Toggling Game Window on a pane, playing, and stopping — the game lives inside the 3D editor](media/demo.gif)
+
 ```
 ┌─────────────────────────────┐
 │                             │
